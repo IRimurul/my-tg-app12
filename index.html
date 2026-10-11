@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Редактор сеток героев</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg: var(--tg-theme-bg-color, #131a22);
+  --card: var(--tg-theme-secondary-bg-color, #1b2530);
+  --text: var(--tg-theme-text-color, #eef2f6);
+  --hint: var(--tg-theme-hint-color, #8a98a8);
+  --accent: var(--tg-theme-button-color, #e8553d);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
+  --warn: #f5a524;
+  --line: rgba(128,140,155,.22);
+  --tile: #0d1218;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);
+  font:15px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body.lock{overflow:hidden}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+.hint{color:var(--hint)}
+.hidden{display:none!important}
+
+#app{min-height:100dvh;padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+#head{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+.top{display:flex;align-items:center;gap:8px;padding:10px 12px}
+.top .title{flex:1;min-width:0}
+.top .title b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top .title span{font-size:12px}
+.icon{width:38px;height:38px;border-radius:10px;background:var(--card);font-size:18px;line-height:1}
+.icon:disabled{opacity:.35}
+
+.chips{display:flex;gap:8px;overflow-x:auto;padding:2px 12px 8px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;max-width:70vw;padding:7px 13px;border-radius:999px;background:var(--card);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
+.chip.on{background:var(--accent);color:var(--accent-text)}
+
+/* превью сетки */
+.pvwrap{height:clamp(110px,24vh,240px);padding:4px 12px 8px;display:flex;align-items:center;justify-content:center}
+.pv{position:relative;flex:none;background:transparent;overflow:hidden}
+/* в превью нет ни рамок, ни фонов — только названия категорий и герои */
+.pv-box{position:absolute;background:none;border:0;border-radius:0;
+  overflow:hidden;cursor:pointer;transition:opacity .15s}
+.pv-h{padding:0 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--hint);font-weight:600}
+.pv-g{display:grid;align-content:start}
+.pv .hero{border-radius:2px;outline:0!important;background:transparent}
+.pv .fb{display:none}
+.pv .hero:not(.ok) .fb{display:block}   /* пока нет картинки — хотя бы имя героя */
+.pv .fb{font-size:inherit;line-height:1}
+.pv.has-active .pv-box:not(.on){opacity:.28}
+.pv-box.on{z-index:2}
+.pv-box.on .pv-h{color:var(--text)}
+.cat.active{outline:2px solid var(--accent)}
+.stat{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;font-size:13px}
+.warnbtn{padding:5px 10px;border-radius:8px;background:rgba(245,165,36,.16);color:var(--warn);font-size:13px}
+.okmark{color:#4cc38a}
+
+.cat{margin:8px 12px 14px;padding:10px;background:var(--card);border-radius:14px}
+.cat-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:0 2px 8px}
+.cat-h b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cat-h span{font-size:12px;flex:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:6px}
+
+.hero{position:relative;aspect-ratio:16/9;border-radius:6px;overflow:hidden;background:var(--tile);
+  display:flex;align-items:center;justify-content:center;outline:2px solid transparent;outline-offset:-2px;
+  transition:outline-color .15s,transform .1s}
+.hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.hero .fb{font-size:10px;line-height:1.1;text-align:center;padding:2px;color:var(--hint);word-break:break-word}
+.hero:active{transform:scale(.96)}
+.hero.dup{outline-color:var(--warn)}
+.hero.flash{outline-color:#fff;outline-width:3px}
+.badge{position:absolute;top:2px;right:2px;padding:1px 5px;border-radius:6px;font-style:normal;
+  font-size:10px;font-weight:700;background:var(--warn);color:#111}
+.hero.add{background:transparent;border:1.5px dashed var(--line);color:var(--hint);font-size:24px}
+
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px;padding:56px 28px}
+.empty h2{margin:0;font-size:20px}
+.empty p{margin:0;max-width:34ch;font-size:14px}
+.empty code{font-size:12px;word-break:break-all}
+
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;gap:8px;
+  padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--line)}
+.primary{flex:1;padding:13px;border-radius:12px;background:var(--accent);color:var(--accent-text);font-weight:600}
+.ghost{padding:13px 16px;border-radius:12px;background:var(--card)}
+.primary:disabled,.ghost:disabled{opacity:.4}
+.big-btn{padding:13px 22px;border-radius:12px;background:var(--accent);color:var(--accent-text);font-weight:600}
+
+/* выбор героя */
+.sheet{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.55);display:flex;align-items:flex-end}
+.panel{width:100%;height:100%;background:var(--bg);border-radius:18px 18px 0 0;display:flex;flex-direction:column;
+  animation:up .18s ease-out}
+@keyframes up{from{transform:translateY(40px);opacity:.4}}
+.sh-top{padding:12px 14px 8px;border-bottom:1px solid var(--line)}
+.sh-info{display:flex;align-items:center;gap:12px}
+.sh-info .hero{width:96px;flex:none}
+.sh-info .txt{flex:1;min-width:0}
+.sh-info .txt b{display:block}
+.sh-info .txt span{font-size:12px}
+.x{width:34px;height:34px;border-radius:50%;background:var(--card);font-size:16px;flex:none}
+.sh-act{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+.danger{padding:7px 12px;border-radius:9px;background:rgba(235,87,87,.16);color:#ff7a7a;font-size:14px}
+.chk{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--warn)}
+.chk input{width:18px;height:18px;accent-color:var(--warn)}
+.sh-search{padding:10px 14px 0}
+.sh-search input{width:100%;padding:11px 13px;border-radius:11px;border:1px solid var(--line);
+  background:var(--card);color:var(--text);font:inherit;outline:none}
+.sh-search input:focus{border-color:var(--accent)}
+.sh-grid{flex:1;overflow-y:auto;padding:4px 14px calc(16px + env(safe-area-inset-bottom));
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(82px,1fr));gap:10px 7px;align-content:start}
+.pick{display:flex;flex-direction:column;gap:3px;text-align:center;min-width:0}
+.pick .nm{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pick.off{opacity:.3;pointer-events:none}
+.pick.cur .hero{outline-color:var(--accent)}
+.none{grid-column:1/-1;text-align:center;padding:30px 0}
+
+#toast{position:fixed;left:50%;bottom:calc(92px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:30;
+  max-width:88vw;padding:10px 16px;border-radius:12px;background:#000c;color:#fff;font-size:14px;
+  opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.show{opacity:1}
+#toast.err{background:#b3261ee6}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="head">
+    <header class="top">
+      <div class="title"><b id="fname">Редактор сеток</b><span id="sub" class="hint">Dota 2 · hero grid</span></div>
+      <button id="pvtoggle" class="icon hidden" title="Показать/скрыть превью">🗺</button>
+      <button id="undo" class="icon" title="Отменить" disabled>↶</button>
+      <button id="open" class="icon" title="Другой файл">📂</button>
+    </header>
+    <nav id="grids" class="chips hidden"></nav>
+    <div id="pvwrap" class="pvwrap hidden"><div id="pv" class="pv"></div></div>
+  </div>
+  <div id="stat" class="stat hidden"></div>
+  <main id="cats"></main>
+
+  <div id="empty" class="empty">
+    <div style="font-size:46px">🧩</div>
+    <h2>Загрузи файл сетки</h2>
+    <p class="hint">Выбери <b>hero_grid_config.json</b> — увидишь сетку с героями и сможешь заменить любого в пару нажатий.</p>
+    <button id="pick" class="big-btn">Выбрать файл</button>
+    <p class="hint" style="font-size:12px">Обычно лежит тут:<br><code>Steam/userdata/&lt;твой id&gt;/570/remote/cfg/</code></p>
+  </div>
+
+  <footer id="bar" class="bar hidden">
+    <button id="save" class="primary">Сохранить</button>
+  </footer>
+</div>
+
+<div id="sheet" class="sheet hidden">
+  <div class="panel">
+    <div class="sh-top">
+      <div class="sh-info" id="sh-info"></div>
+      <div class="sh-act" id="sh-act"></div>
+    </div>
+    <div class="sh-search"><input id="q" type="search" placeholder="Поиск героя: имя или id" autocomplete="off"></div>
+    <div class="chips" id="sh-attr"></div>
+    <div class="sh-grid" id="sh-grid"></div>
+  </div>
+</div>
+
+<input id="file" type="file" hidden>
+<div id="toast"></div>
+
+<script>
+const HEROES = [[1,"antimage","Anti-Mage","agi"],[2,"axe","Axe","str"],[3,"bane","Bane","all"],[4,"bloodseeker","Bloodseeker","agi"],[5,"crystal_maiden","Crystal Maiden","int"],[6,"drow_ranger","Drow Ranger","agi"],[7,"earthshaker","Earthshaker","str"],[8,"juggernaut","Juggernaut","agi"],[9,"mirana","Mirana","agi"],[10,"morphling","Morphling","agi"],[11,"nevermore","Shadow Fiend","agi"],[12,"phantom_lancer","Phantom Lancer","agi"],[13,"puck","Puck","int"],[14,"pudge","Pudge","str"],[15,"razor","Razor","agi"],[16,"sand_king","Sand King","all"],[17,"storm_spirit","Storm Spirit","int"],[18,"sven","Sven","str"],[19,"tiny","Tiny","str"],[20,"vengefulspirit","Vengeful Spirit","agi"],[21,"windrunner","Windranger","all"],[22,"zuus","Zeus","int"],[23,"kunkka","Kunkka","str"],[25,"lina","Lina","int"],[26,"lion","Lion","int"],[27,"shadow_shaman","Shadow Shaman","int"],[28,"slardar","Slardar","str"],[29,"tidehunter","Tidehunter","str"],[30,"witch_doctor","Witch Doctor","int"],[31,"lich","Lich","int"],[32,"riki","Riki","agi"],[33,"enigma","Enigma","all"],[34,"tinker","Tinker","int"],[35,"sniper","Sniper","agi"],[36,"necrolyte","Necrophos","int"],[37,"warlock","Warlock","int"],[38,"beastmaster","Beastmaster","all"],[39,"queenofpain","Queen of Pain","int"],[40,"venomancer","Venomancer","all"],[41,"faceless_void","Faceless Void","agi"],[42,"skeleton_king","Wraith King","str"],[43,"death_prophet","Death Prophet","all"],[44,"phantom_assassin","Phantom Assassin","agi"],[45,"pugna","Pugna","int"],[46,"templar_assassin","Templar Assassin","agi"],[47,"viper","Viper","agi"],[48,"luna","Luna","agi"],[49,"dragon_knight","Dragon Knight","str"],[50,"dazzle","Dazzle","all"],[51,"rattletrap","Clockwerk","str"],[52,"leshrac","Leshrac","int"],[53,"furion","Nature's Prophet","all"],[54,"life_stealer","Lifestealer","str"],[55,"dark_seer","Dark Seer","int"],[56,"clinkz","Clinkz","agi"],[57,"omniknight","Omniknight","str"],[58,"enchantress","Enchantress","int"],[59,"huskar","Huskar","str"],[60,"night_stalker","Night Stalker","str"],[61,"broodmother","Broodmother","agi"],[62,"bounty_hunter","Bounty Hunter","agi"],[63,"weaver","Weaver","agi"],[64,"jakiro","Jakiro","int"],[65,"batrider","Batrider","all"],[66,"chen","Chen","int"],[67,"spectre","Spectre","agi"],[68,"ancient_apparition","Ancient Apparition","int"],[69,"doom_bringer","Doom","str"],[70,"ursa","Ursa","agi"],[71,"spirit_breaker","Spirit Breaker","str"],[72,"gyrocopter","Gyrocopter","agi"],[73,"alchemist","Alchemist","str"],[74,"invoker","Invoker","int"],[75,"silencer","Silencer","int"],[76,"obsidian_destroyer","Outworld Devourer","int"],[77,"lycan","Lycan","str"],[78,"brewmaster","Brewmaster","all"],[79,"shadow_demon","Shadow Demon","int"],[80,"lone_druid","Lone Druid","agi"],[81,"chaos_knight","Chaos Knight","str"],[82,"meepo","Meepo","agi"],[83,"treant","Treant Protector","str"],[84,"ogre_magi","Ogre Magi","str"],[85,"undying","Undying","str"],[86,"rubick","Rubick","int"],[87,"disruptor","Disruptor","int"],[88,"nyx_assassin","Nyx Assassin","all"],[89,"naga_siren","Naga Siren","agi"],[90,"keeper_of_the_light","Keeper of the Light","int"],[91,"wisp","Io","all"],[92,"visage","Visage","all"],[93,"slark","Slark","agi"],[94,"medusa","Medusa","agi"],[95,"troll_warlord","Troll Warlord","agi"],[96,"centaur","Centaur Warrunner","str"],[97,"magnataur","Magnus","all"],[98,"shredder","Timbersaw","str"],[99,"bristleback","Bristleback","str"],[100,"tusk","Tusk","str"],[101,"skywrath_mage","Skywrath Mage","int"],[102,"abaddon","Abaddon","all"],[103,"elder_titan","Elder Titan","str"],[104,"legion_commander","Legion Commander","str"],[105,"techies","Techies","all"],[106,"ember_spirit","Ember Spirit","agi"],[107,"earth_spirit","Earth Spirit","str"],[108,"abyssal_underlord","Underlord","str"],[109,"terrorblade","Terrorblade","agi"],[110,"phoenix","Phoenix","str"],[111,"oracle","Oracle","int"],[112,"winter_wyvern","Winter Wyvern","int"],[113,"arc_warden","Arc Warden","all"],[114,"monkey_king","Monkey King","agi"],[119,"dark_willow","Dark Willow","int"],[120,"pangolier","Pangolier","all"],[121,"grimstroke","Grimstroke","int"],[123,"hoodwink","Hoodwink","agi"],[126,"void_spirit","Void Spirit","all"],[128,"snapfire","Snapfire","all"],[129,"mars","Mars","str"],[131,"ringmaster","Ring Master","int"],[135,"dawnbreaker","Dawnbreaker","str"],[136,"marci","Marci","all"],[137,"primal_beast","Primal Beast","str"],[138,"muerta","Muerta","int"],[145,"kez","Kez","agi"],[155,"largo","Largo","str"]]; // [id, short, name, attr]
+const H = new Map(HEROES.map(([id, s, n, a]) => [id, {id, s, n, a}]));
+// Источники картинок героев по порядку. Первый — сам бот (/img/…): он скачивает иконку у Steam
+// и кэширует, так что работает, даже если у пользователя Steam CDN недоступен.
+// Источники картинок героев по порядку. Первый — сам бот (/img/…): он скачивает иконку (в т.ч. с Dota Wiki)
+// и кэширует, так что работает, даже если у пользователя Steam CDN недоступен.
+// Дальше — Steam/Valve CDN, OpenDota и напрямую Dota Wiki (Fandom).
+const WIKI_ALT = {76: 'Outworld Destroyer', 131: 'Ringmaster'};        // как герой называется на вики
+const wikiFile = n => encodeURIComponent(n.replace(/ /g, '_') + '_icon.png');
+const wikiUrl = n => `https://dota2.fandom.com/wiki/Special:FilePath/${wikiFile(n)}`;
+const IMG_SRC = [
+  h => location.protocol.startsWith('http') ? `${API_BASE()}/img/${h.s}.png?w=${wikiFile(h.n)}` : null,
+  h => `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${h.s}.png`,
+  h => `https://cdn.akamai.steamstatic.com/apps/dota2/images/dota_react/heroes/${h.s}.png`,
+  h => `https://cdn.dota2.com/apps/dota2/images/heroes/${h.s}_lg.png`,
+  h => `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/heroes/${h.s}_lg.png`,
+  h => `https://api.opendota.com/apps/dota2/images/dota_react/heroes/${h.s}.png`,
+  h => `https://wsrv.nl/?url=${encodeURIComponent(`cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${h.s}.png`)}`,
+  h => `https://wsrv.nl/?url=${encodeURIComponent(wikiUrl(h.n))}`,
+  h => wikiUrl(h.n),
+  h => WIKI_ALT[h.id] ? wikiUrl(WIKI_ALT[h.id]) : null,
+];
+const imgStat = IMG_SRC.map(() => ({ok: 0, bad: 0}));   // источник, который 3 раза подряд не отдал картинку, пропускаем
+function nextSrc(from, h) {
+  for (let i = from; i < IMG_SRC.length; i++) {
+    const st = imgStat[i];
+    if (st.bad >= 3 && st.ok === 0) continue;
+    if (IMG_SRC[i](h)) return i;
+  }
+  return -1;
+}
+const ATTRS = [['any', 'Все'], ['str', 'Сила'], ['agi', 'Ловкость'], ['int', 'Интеллект'], ['all', 'Универсал']];
+const API = new URLSearchParams(location.search).get('api') || '';
+const API_BASE = () => API.replace(/\/$/, '');
+
+const $ = s => document.querySelector(s);
+const tg = window.Telegram && window.Telegram.WebApp;
+const inTg = !!(tg && tg.initData);
+try { tg && (tg.ready(), tg.expand()); } catch (e) {}
+
+let activeCat = null, pvOn = true, pvBoxes = new Map(), resizeT;
+let data = null, fileName = 'hero_grid_config.json', cur = 0, undo = [], S = null, dupIdx = -1;
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function haptic() { try { tg.HapticFeedback.impactOccurred('light'); } catch (e) {} }
+let toastT;
+function toast(msg, err, ms) {
+  const t = $('#toast');
+  t.textContent = msg; t.className = 'show' + (err ? ' err' : '');
+  clearTimeout(toastT); toastT = setTimeout(() => t.className = '', ms || 2600);
+}
+
+/* ---------- данные ---------- */
+// Сетки без единого героя не показываем (решается один раз при загрузке файла,
+// чтобы сетка не пропала, если пользователь сам убрал всех героев). В файле они остаются.
+let shown = new Set();
+let hiddenCats = new Set();   // пустые категории ("сетка:категория"), определяются при загрузке файла
+const LOCK_MSG = 'Нельзя сделать больше или меньше героев, поскольку это полностью сломает рамки героев и сетка будет некорректно выглядеть';
+function lockedToast() { toast(LOCK_MSG, true, 5200); haptic(); }
+const heroCount = c => c.categories.reduce((n, k) => n + k.hero_ids.length, 0);
+const validGrids = () => data.configs.map((c, i) => [c, i]).filter(([, i]) => shown.has(i));
+
+function counts(cfg) {
+  const m = new Map();
+  for (const c of cfg.categories) for (const id of c.hero_ids) m.set(id, (m.get(id) || 0) + 1);
+  return m;
+}
+
+function loadData(d) {
+  if (!d || typeof d !== 'object' || !Array.isArray(d.configs)) throw new Error('нет ключа "configs"');
+  for (const c of d.configs) {
+    if (c && Array.isArray(c.categories))
+      for (const cat of c.categories) if (!Array.isArray(cat.hero_ids)) cat.hero_ids = [];
+  }
+  const ok = new Set(d.configs.map((c, i) => [c, i])
+    .filter(([c]) => c && Array.isArray(c.categories) && heroCount(c) > 0).map(([, i]) => i));
+  if (!ok.size) throw new Error('в файле нет сеток с героями');   // старые данные не трогаем
+  data = d; shown = ok;
+  hiddenCats = new Set();
+  d.configs.forEach((c, i) => c && Array.isArray(c.categories) &&
+    c.categories.forEach((k, j) => { if (!k.hero_ids.length) hiddenCats.add(i + ':' + j); }));
+  const v = validGrids();
+  cur = v[0][1]; undo = []; dupIdx = -1; activeCat = null;
+}
+
+function pushUndo() {
+  undo.push({ci: cur, s: JSON.stringify(data.configs[cur].categories)});
+  if (undo.length > 100) undo.shift();
+  syncUndo();
+}
+function syncUndo() {
+  $('#undo').disabled = !undo.length;
+  try { undo.length ? tg.enableClosingConfirmation() : tg.disableClosingConfirmation(); } catch (e) {}
+}
+
+/* ---------- плитка героя ---------- */
+function tile(id, cls) {
+  const t = el('div', 'hero' + (cls ? ' ' + cls : ''));
+  const h = H.get(id);
+  t.append(el('span', 'fb', h ? h.n : '#' + id));
+  if (!h) { t.classList.add('noimg'); return t; }
+  t.classList.add('loading');                      // пока картинки нет — показываем имя
+  const img = new Image();
+  img.alt = ''; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
+  let n = -1, timer;
+  const fail = () => {
+    clearTimeout(timer);
+    if (n >= 0) imgStat[n].bad++;
+    n = nextSrc(n + 1, h);
+    if (n < 0) { img.remove(); t.classList.remove('loading'); t.classList.add('noimg'); return; }
+    img.src = IMG_SRC[n](h);
+    timer = setTimeout(fail, 6000);                // источник завис — идём к следующему
+  };
+  img.onload = () => { clearTimeout(timer); imgStat[n].ok++; t.classList.remove('loading'); t.classList.add('ok'); };
+  img.onerror = fail;
+  t.prepend(img);
+  fail();
+  return t;
+}
+
+/* ---------- отрисовка ---------- */
+function render() {
+  const has = !!data;
+  $('#empty').classList.toggle('hidden', has);
+  $('#bar').classList.toggle('hidden', !has);
+  $('#cats').replaceChildren();
+  $('#grids').classList.add('hidden');
+  $('#stat').classList.add('hidden');
+  $('#pvtoggle').classList.toggle('hidden', !has);
+  $('#pvwrap').classList.add('hidden');
+  if (!has) { $('#fname').textContent = 'Редактор сеток'; $('#sub').textContent = 'Dota 2 · hero grid'; return; }
+
+  const cfg = data.configs[cur];
+  const cnt = counts(cfg);
+  const slots = [...cnt.values()].reduce((a, b) => a + b, 0);
+  $('#fname').textContent = fileName;
+  $('#sub').textContent = `${cfg.config_name || 'Grid'} · героев: ${slots}`;
+
+  // выбор сетки
+  const v = validGrids();
+  const nav = $('#grids');
+  nav.replaceChildren();
+  if (v.length > 1) {
+    for (const [c, i] of v) {
+      const b = el('button', 'chip' + (i === cur ? ' on' : ''), c.config_name || 'Grid ' + (i + 1));
+      b.onclick = () => { cur = i; dupIdx = -1; activeCat = null; render(); scrollTo(0, 0); };
+      nav.append(b);
+    }
+    nav.classList.remove('hidden');
+    nav.querySelector('.on')?.scrollIntoView({inline: 'center', block: 'nearest'});
+  }
+
+  // повторы
+  const dups = [...cnt].filter(([, n]) => n > 1);
+  const st = $('#stat');
+  st.replaceChildren();
+  st.append(el('span', 'hint', `уникальных: ${cnt.size}`));
+  if (dups.length) {
+    const b = el('button', 'warnbtn', `⚠ повторы: ${dups.length} — показать`);
+    b.onclick = nextDup;
+    st.append(b);
+  } else st.append(el('span', 'okmark', '✓ повторов нет'));
+  st.classList.remove('hidden');
+
+  // категории в порядке расположения на экране Dota
+  const cats = cfg.categories.map((c, i) => ({c, i}))
+    .sort((a, b) => (a.c.y_position - b.c.y_position) || (a.c.x_position - b.c.x_position) || (a.i - b.i));
+  for (const {c, i} of cats) {
+    if (hiddenCats.has(cur + ':' + i)) continue;
+    const card = el('section', 'cat');
+    card.dataset.ci = i;
+    card.onclick = e => {                       // тап по категории = выбрать её (подсветка в превью)
+      if (e.target.closest('.hero')) return;
+      activeCat = activeCat === i ? null : i; markActive();
+    };
+    const head = el('div', 'cat-h');
+    head.append(el('b', '', c.category_name || 'Без названия'), el('span', 'hint', String(c.hero_ids.length)));
+    const grid = el('div', 'grid');
+    c.hero_ids.forEach((id, pi) => {
+      const n = cnt.get(id);
+      const t = tile(id, n > 1 ? 'dup' : '');
+      if (n > 1) t.append(el('i', 'badge', '×' + n));
+      t.onclick = () => openSheet({mode: 'replace', ci: i, pi, id});
+      grid.append(t);
+    });
+    const add = el('button', 'hero add', '+');
+    add.onclick = lockedToast;               // добавлять героев нельзя — число мест в рамке фиксировано
+    grid.append(add);
+    card.append(head, grid);
+    $('#cats').append(card);
+  }
+
+  if (pvOn) { $('#pvwrap').classList.remove('hidden'); renderPreview(); }
+  markActive();
+  $('#save').textContent = inTg ? 'Отправить в чат' : 'Скачать файл';
+  syncUndo();
+}
+
+/* ---------- превью всей сетки ---------- */
+function fitTiles(n, W, H, cap) {
+  // подбираем размер иконок так, чтобы все герои поместились в рамку категории
+  if (n < 1) return {cols: 1, w: 1};
+  const gap = 2, aw = W - 6, ah = H - 3;
+  let cols = n;
+  for (let c = 1; c <= n; c++) {
+    const tw = (aw - (c - 1) * gap) / c, rows = Math.ceil(n / c);
+    if (rows * (tw * 9 / 16) + (rows - 1) * gap <= ah) { cols = c; break; }
+  }
+  let w = (aw - (cols - 1) * gap) / cols;
+  if (w > cap) { w = cap; cols = Math.max(1, Math.floor((aw + gap) / (cap + gap))); }
+  return {cols, w: Math.max(w, 1)};
+}
+
+function renderPreview() {
+  const wrap = $('#pvwrap'), pv = $('#pv');
+  pv.replaceChildren(); pvBoxes.clear();
+  const cfg = data.configs[cur];
+  const boxes = [];
+  let cursor = 0;
+  cfg.categories.forEach((c, i) => {
+    // в превью показываем все категории, в том числе пустые: они занимают место в настоящей сетке
+    let x = +c.x_position || 0, y = +c.y_position || 0, w = +c.width || 0, h = +c.height || 0;
+    if (w <= 0 || h <= 0) {                      // в файле нет размеров — раскладываем столбиком
+      x = 0; y = cursor; w = 300; h = 30 + Math.ceil(Math.max(c.hero_ids.length, 1) / 5) * 40;
+    }
+    cursor = Math.max(cursor, y + h + 10);
+    boxes.push({c, i, x, y, w, h});
+  });
+  if (!boxes.length) return;
+  const minX = Math.min(...boxes.map(b => b.x)), minY = Math.min(...boxes.map(b => b.y));
+  const BW = Math.max(...boxes.map(b => b.x + b.w)) - minX, BH = Math.max(...boxes.map(b => b.y + b.h)) - minY;
+  const cw = wrap.clientWidth - 24, ch = wrap.clientHeight - 12;
+  if (cw <= 0 || ch <= 0 || BW <= 0 || BH <= 0) return;
+  const k = Math.min(cw / BW, ch / BH);
+  pv.style.width = BW * k + 'px'; pv.style.height = BH * k + 'px';
+  const cap = BW >= 200 ? 64 : Infinity;
+  const HH = 22;                                 // высота заголовка категории
+  for (const b of boxes) {
+    const box = el('div', 'pv-box');
+    Object.assign(box.style, {left: (b.x - minX) * k + 'px', top: (b.y - minY) * k + 'px',
+                              width: b.w * k + 'px', height: b.h * k + 'px'});
+    const nm = el('div', 'pv-h', b.c.category_name || '');
+    nm.style.height = nm.style.lineHeight = HH * k + 'px';
+    nm.style.fontSize = Math.max(6, Math.min(11, HH * k * 0.7)) + 'px';
+    const {cols, w} = fitTiles(b.c.hero_ids.length, b.w, b.h - HH, cap);
+    const g = el('div', 'pv-g');
+    g.style.gridTemplateColumns = `repeat(${cols}, ${w * k}px)`;
+    g.style.gap = 2 * k + 'px';
+    g.style.padding = `0 ${3 * k}px`;
+    g.style.fontSize = Math.max(3, w * k * 0.17) + 'px';
+    for (const id of b.c.hero_ids) g.append(tile(id));
+    box.append(nm, g);
+    const inList = !hiddenCats.has(cur + ':' + b.i);   // пустых категорий в списке нет — выбирать нечего
+    if (!inList) box.style.cursor = 'default';
+    else box.onclick = () => {                   // тап по рамке в превью = выбрать категорию
+      if (S) return;
+      activeCat = b.i; markActive();
+      document.querySelector(`#cats .cat[data-ci="${b.i}"]`)?.scrollIntoView({block: 'center', behavior: 'smooth'});
+    };
+    pv.append(box); pvBoxes.set(b.i, box);
+  }
+}
+
+function markActive() {
+  $('#pv').classList.toggle('has-active', activeCat != null && pvBoxes.has(activeCat));
+  pvBoxes.forEach((b, i) => b.classList.toggle('on', i === activeCat));
+  document.querySelectorAll('#cats .cat').forEach(c => c.classList.toggle('active', +c.dataset.ci === activeCat));
+}
+$('#pvtoggle').onclick = () => { pvOn = !pvOn; render(); };
+addEventListener('resize', () => {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(() => { if (data && pvOn) { renderPreview(); markActive(); } }, 150);
+});
+
+function nextDup() {
+  const list = [...document.querySelectorAll('.hero.dup')];
+  if (!list.length) return;
+  dupIdx = (dupIdx + 1) % list.length;
+  const t = list[dupIdx];
+  t.scrollIntoView({block: 'center', behavior: 'smooth'});
+  t.classList.add('flash');
+  setTimeout(() => t.classList.remove('flash'), 900);
+}
+
+/* ---------- выбор героя ---------- */
+function openSheet(s) {
+  S = {...s, all: false, attr: 'any'};
+  activeCat = S.ci; markActive();                // подсвечиваем категорию в превью
+  // окно открывается под закреплённой шапкой с превью, чтобы подсветка была видна
+  $('#sheet').style.top = Math.min(Math.round($('#head').getBoundingClientRect().bottom), innerHeight - 340) + 'px';
+  const cfg = data.configs[cur], cat = cfg.categories[S.ci];
+  const info = $('#sh-info'), act = $('#sh-act');
+  info.replaceChildren(); act.replaceChildren();
+
+  const txt = el('div', 'txt');
+  if (S.mode === 'replace') {
+    const h = H.get(S.id);
+    info.append(tile(S.id));
+    txt.append(el('b', '', h ? h.n : 'Герой #' + S.id),
+      el('span', 'hint', `id ${S.id} · «${cat.category_name || 'Без названия'}»`));
+  } else {
+    txt.append(el('b', '', 'Добавить героя'), el('span', 'hint', `в «${cat.category_name || 'Без названия'}»`));
+  }
+  info.append(txt);
+  const x = el('button', 'x', '✕'); x.onclick = closeSheet; info.append(x);
+
+  if (S.mode === 'replace') {
+    const rm = el('button', 'danger', '🗑 Убрать');
+    rm.onclick = lockedToast;                // убирать героев нельзя
+    act.append(rm);
+    const n = counts(cfg).get(S.id) || 0;
+    if (n > 1) {
+      const lb = el('label', 'chk');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.onchange = () => { S.all = cb.checked; renderPick(); };
+      lb.append(cb, document.createTextNode(`Во всех повторах (${n})`));
+      act.append(lb);
+    }
+  }
+  act.classList.toggle('hidden', !act.children.length);
+  $('#q').value = '';
+  const ac = $('#sh-attr'); ac.replaceChildren();
+  for (const [k, label] of ATTRS) {
+    const b = el('button', 'chip' + (k === 'any' ? ' on' : ''), label);
+    b.onclick = () => { S.attr = k; [...ac.children].forEach(c => c.classList.toggle('on', c === b)); renderPick(); };
+    ac.append(b);
+  }
+  $('#sheet').classList.remove('hidden');
+  document.body.classList.add('lock');
+  renderPick();
+  $('#sh-grid').scrollTop = 0;
+}
+function closeSheet() {
+  $('#sheet').classList.add('hidden');
+  document.body.classList.remove('lock');
+  S = null;
+}
+
+function renderPick() {
+  const g = $('#sh-grid');
+  g.replaceChildren();
+  const q = $('#q').value.trim().toLowerCase();
+  const cfg = data.configs[cur], cat = cfg.categories[S.ci];
+  // при замене «во всех повторах» нельзя брать героя, который уже есть в любой из затрагиваемых категорий
+  const here = new Set(S.all ? cfg.categories.filter(c => c.hero_ids.includes(S.id)).flatMap(c => c.hero_ids) : cat.hero_ids);
+  const list = HEROES.filter(([id, s, n, a]) =>
+    (S.attr === 'any' || a === S.attr) &&
+    (!q || n.toLowerCase().includes(q) || s.includes(q) || String(id) === q))
+    .sort((a, b) => a[2].localeCompare(b[2]));
+  if (!list.length) { g.append(el('div', 'none hint', 'Никого не нашли')); return; }
+  for (const [id, , n] of list) {
+    const isCur = S.mode === 'replace' && id === S.id;
+    const off = isCur || (!S.all && here.has(id));
+    const p = el('div', 'pick' + (off ? ' off' : '') + (isCur ? ' cur' : ''));
+    p.append(tile(id), el('div', 'nm', n));
+    if (!off) p.onclick = () => choose(id);
+    g.append(p);
+  }
+}
+$('#q').addEventListener('input', () => S && renderPick());
+
+function choose(newId) {
+  const cfg = data.configs[cur];
+  pushUndo();
+  if (S.mode === 'add') {
+    cfg.categories[S.ci].hero_ids.push(newId);
+  } else if (S.all) {
+    for (const c of cfg.categories)          // только замена на месте: число героев в рамке не меняется
+      c.hero_ids = c.hero_ids.map(h => h === S.id ? newId : h);
+  } else {
+    cfg.categories[S.ci].hero_ids[S.pi] = newId;
+  }
+  haptic(); closeSheet(); render();
+}
+
+$('#sheet').addEventListener('click', e => { if (e.target.id === 'sheet') closeSheet(); });
+
+/* ---------- файл / сохранение ---------- */
+const chooseFile = () => $('#file').click();
+$('#pick').onclick = chooseFile;
+$('#open').onclick = () => {
+  if (undo.length && !confirm('Несохранённые правки пропадут. Открыть другой файл?')) return;
+  chooseFile();
+};
+$('#file').onchange = async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    loadData(JSON.parse((await f.text()).replace(/^﻿/, '')));
+    fileName = f.name || fileName;
+    render(); scrollTo(0, 0);
+  } catch (err) {
+    toast('Не удалось открыть: ' + (err.message || err), true);
+  }
+};
+
+$('#undo').onclick = () => {
+  const u = undo.pop();
+  if (!u) return;
+  cur = u.ci; data.configs[cur].categories = JSON.parse(u.s);
+  render();
+};
+
+const outText = () => JSON.stringify(data, null, 2);
+
+function download() {
+  const url = URL.createObjectURL(new Blob([outText()], {type: 'application/json'}));
+  const a = document.createElement('a');
+  a.href = url; a.download = fileName.toLowerCase().endsWith('.json') ? fileName : fileName + '.json';
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+async function save() {
+  if (!data) return;
+  if (!inTg) return download();
+  const btn = $('#save');
+  btn.disabled = true;
+  try {
+    const r = await fetch(API + '/api/save', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({initData: tg.initData, filename: fileName, content: outText()})
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 404 || r.status === 405)
+      throw new Error('мини-апп не подключён к боту (в адрес мини-аппа нужно добавить ?api=адрес_бота)');
+    if (!r.ok || !j.ok) throw new Error(j.error || 'HTTP ' + r.status);
+    undo = []; syncUndo();
+    toast('Бот отправил вам изменённую сетку ✅');
+  } catch (err) {
+    toast('Не получилось отправить: ' + (err.message || err), true, 6000);
+  } finally { btn.disabled = false; }
+}
+$('#save').onclick = save;
+
+render();
+
+// Открыли из бота, а файл уже загружен в чат — подхватываем его сами
+(async () => {
+  if (!inTg) return;
+  try {
+    const r = await fetch(API + '/api/file', {headers: {'X-Init-Data': tg.initData}});
+    if (!r.ok) return;
+    const j = await r.json();
+    loadData(JSON.parse(j.content));
+    fileName = j.name || fileName;
+    render();
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>
